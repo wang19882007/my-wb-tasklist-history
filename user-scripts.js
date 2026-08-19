@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         gs-btn-brand 计数器（任务去重，定时3小时，显示增减）
 // @namespace    http://tampermonkey.net/
-// @version      2.5
-// @description  统计 .gs-btn-brand 数量并记录任务详情，items相同不重复记录，每3小时定时执行，展示新增（绿色）与减少（🗑️删除线），数量列显示差值
+// @version      2.6
+// @description  统计 .gs-btn-brand 数量并记录任务详情，items相同不重复记录，每3小时定时执行，展示新增（绿色）与减少（🗑️删除线），数量列显示差值，支持单条删除与一键清空历史记录
 // @author       You
 // @match        https://www.workbuddy.cn/profile/growth-center
 // @grant        GM_setValue
@@ -82,6 +82,39 @@
         #gs-history-modal .modal-header .close-btn:hover {
             color: #374151;
         }
+        #gs-history-modal .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        #gs-history-modal .clear-all-btn {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            padding: 5px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        #gs-history-modal .clear-all-btn:hover {
+            background: #fee2e2;
+        }
+        #gs-history-modal .row-delete-btn {
+            background: none;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 4px 8px;
+            color: #9ca3af;
+            transition: all 0.15s;
+        }
+        #gs-history-modal .row-delete-btn:hover {
+            background: #fee2e2;
+            color: #dc2626;
+            border-color: #fecaca;
+        }
         #gs-history-modal .modal-body {
             overflow-y: auto;
             flex: 1;
@@ -95,11 +128,13 @@
         #gs-history-modal th:nth-child(1),
         #gs-history-modal td:nth-child(1) { width: 5%; }
         #gs-history-modal th:nth-child(2),
-        #gs-history-modal td:nth-child(2) { width: 18%; }
+        #gs-history-modal td:nth-child(2) { width: 17%; }
         #gs-history-modal th:nth-child(3),
         #gs-history-modal td:nth-child(3) { width: 12%; }
         #gs-history-modal th:nth-child(4),
-        #gs-history-modal td:nth-child(4) { width: 65%; }
+        #gs-history-modal td:nth-child(4) { width: 60%; }
+        #gs-history-modal th:nth-child(5),
+        #gs-history-modal td:nth-child(5) { width: 6%; }
 
         #gs-history-modal th {
             background: #f3f4f6;
@@ -263,6 +298,29 @@
         return Array.isArray(data) ? data : [];
     }
 
+    // ========== 删除历史记录 ==========
+    function deleteRecord(index) {
+        const history = getHistory();
+        if (index < 0 || index >= history.length) return;
+        const record = history[index];
+        const time = record.timestamp || '未知时间';
+        const count = (record.items || []).length;
+        if (!confirm(`确定删除这条记录吗？\n\n时间：${time}\n任务数：${count}\n\n删除后不可恢复。`)) return;
+        history.splice(index, 1);
+        GM_setValue(STORAGE_KEY, history);
+        console.log(`[gs-btn-brand] 已删除记录：${time}（${count} 个任务）`);
+        refreshModalContent();
+    }
+
+    function clearAllHistory() {
+        const history = getHistory();
+        if (history.length === 0) return;
+        if (!confirm(`确定要清空全部 ${history.length} 条历史记录吗？\n\n删除后不可恢复！`)) return;
+        GM_setValue(STORAGE_KEY, []);
+        console.log('[gs-btn-brand] 已清空全部历史记录。');
+        refreshModalContent();
+    }
+
     // ========== 收集任务信息 ==========
     function collectTaskDetails() {
         const buttons = document.querySelectorAll('.gs-btn-brand, .gs-btn-dark');
@@ -354,7 +412,10 @@
             <div class="modal-box">
                 <div class="modal-header">
                     <h2>📊 gs-btn-brand 计数历史</h2>
-                    <button class="close-btn" id="gs-modal-close">✕</button>
+                    <div class="header-actions">
+                        <button class="clear-all-btn" id="gs-modal-clear-all">🗑️ 清空全部</button>
+                        <button class="close-btn" id="gs-modal-close">✕</button>
+                    </div>
                 </div>
                 <div class="modal-body" id="gs-modal-body">
                     <div class="empty-state">加载中...</div>
@@ -366,7 +427,9 @@
 
         const closeBtn = document.getElementById('gs-modal-close');
         const modalOverlay = document.getElementById('gs-history-modal');
+        const clearAllBtn = document.getElementById('gs-modal-clear-all');
         closeBtn.addEventListener('click', () => modalOverlay.classList.remove('active'));
+        clearAllBtn.addEventListener('click', clearAllHistory);
         modalOverlay.addEventListener('click', (e) => {
             if (e.target === modalOverlay) modalOverlay.classList.remove('active');
         });
@@ -381,6 +444,10 @@
         if (!body) return;
 
         const history = getHistory();
+
+        // 无记录时隐藏"清空全部"按钮
+        const clearAllBtn = document.getElementById('gs-modal-clear-all');
+        if (clearAllBtn) clearAllBtn.style.display = history.length > 0 ? '' : 'none';
 
         if (history.length === 0) {
             body.innerHTML = `<div class="empty-state">📭 暂无任何记录，请先访问目标页面触发统计。</div>`;
@@ -399,6 +466,7 @@
                         <th>时间</th>
                         <th>数量</th>
                         <th>任务详情</th>
+                        <th>操作</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -482,6 +550,8 @@
 
             // 序号从最早记录开始：总条数 - 当前索引
             const serialNumber = reversed.length - index;
+            // 该行对应原始 history 数组的下标（展示为倒序，最新在前）
+            const originalIndex = history.length - 1 - index;
 
             tableHtml += `
                 <tr>
@@ -489,6 +559,7 @@
                     <td>${item.timestamp || '未知'}</td>
                     <td>${countDisplay}</td>
                     <td style="position:relative;">${detailHtml}</td>
+                    <td><button class="row-delete-btn" data-index="${originalIndex}" title="删除此条记录">🗑️</button></td>
                 </tr>
             `;
         });
@@ -506,6 +577,14 @@
                     popup.classList.toggle('active');
                     this.textContent = popup.classList.contains('active') ? '📋 收起' : '📋 展开';
                 }
+            });
+        });
+
+        // 绑定单条删除事件
+        document.querySelectorAll('#gs-modal-body .row-delete-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                deleteRecord(parseInt(this.dataset.index, 10));
             });
         });
 
