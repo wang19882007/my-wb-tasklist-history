@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gs-btn-brand 计数器（任务去重，定时3小时，显示增减）
 // @namespace    http://tampermonkey.net/
-// @version      2.6
+// @version      2.7
 // @description  统计 .gs-btn-brand 数量并记录任务详情，items相同不重复记录，每3小时定时执行，展示新增（绿色）与减少（🗑️删除线），数量列显示差值，支持单条删除与一键清空历史记录
 // @author       You
 // @match        https://www.workbuddy.cn/profile/growth-center
