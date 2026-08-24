@@ -616,11 +616,15 @@
         saveHistory(items);
     }
 
-    // ========== 初始执行与定时循环 ==========
+    // ========== 初始执行与定时刷新 ==========
     setTimeout(() => {
         main();
     }, 10000);
 
-    setInterval(main, INTERVAL_MS);
+    // 每 INTERVAL_MS 刷新一次页面。刷新后脚本随之重新加载并再次统计数据，
+    // 从而在无需 keep-alive 的情况下按固定周期重新记录任务变化。
+    setTimeout(() => {
+        location.reload();
+    }, INTERVAL_MS);
 
 })();
