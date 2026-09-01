@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         gs-btn-brand 计数器（任务去重，定时3小时，显示增减）
 // @namespace    http://tampermonkey.net/
-// @version      2.7
+// @version      2.8
 // @description  统计 .gs-btn-brand 数量并记录任务详情，items相同不重复记录，每3小时定时执行，展示新增（绿色）与减少（🗑️删除线），数量列显示差值，支持单条删除与一键清空历史记录
 // @author       You
 // @match        https://www.workbuddy.cn/profile/growth-center
@@ -17,6 +17,8 @@
     // ========== 配置项 ==========
     const STORAGE_KEY = 'gs_btn_brand_history';
     const INTERVAL_MS = 3 * 60 * 60 * 1000; // 3小时
+    // 目标页面路径（动态页面路由变化后用于校验当前是否仍在目标页）
+    const TARGET_PATH = '/profile/growth-center';
     // 测试展示开关（true 时在查看历史时对最新记录添加测试任务以演示新增/删除样式，不影响存储）
     const ENABLE_TEST_DISPLAY = false;
 
@@ -611,7 +613,15 @@
     });
 
     // ========== 主逻辑 ==========
+    // 判断当前页面是否仍是目标页（动态页面路由变化后脚本不会重新加载，需手动校验）
+    function isOnTargetPage() {
+        if (location.pathname === TARGET_PATH) return true;
+        alert(`⚠️ 当前页面已不是目标页面！\n\n当前地址：${location.href}\n目标路径：${TARGET_PATH}\n\n脚本已退出，请回到目标页面后重新触发统计。`);
+        return false;
+    }
+
     function main() {
+        if (!isOnTargetPage()) return;
         const items = collectTaskDetails();
         saveHistory(items);
     }
@@ -623,7 +633,9 @@
 
     // 每 INTERVAL_MS 刷新一次页面。刷新后脚本随之重新加载并再次统计数据，
     // 从而在无需 keep-alive 的情况下按固定周期重新记录任务变化。
+    // 刷新前同样校验当前是否仍在目标页，避免在非目标页反复刷新。
     setTimeout(() => {
+        if (!isOnTargetPage()) return;
         location.reload();
     }, INTERVAL_MS);
 
