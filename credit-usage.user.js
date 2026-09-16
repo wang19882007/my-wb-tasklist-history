@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         workbuddy 查看今日积分使用量
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Tampermonkey 菜单新增【查看今日积分使用量】按钮，支持 workbuddy.cn（按 credit 求和）与 www.trae.cn/dashboard（按 credits_float 求和），分页拉全量后弹窗展示今日积分使用总量与明细
 // @author       You
 // @match        https://www.workbuddy.cn/profile/*
@@ -18,7 +18,7 @@
     const HOST = location.hostname;
     const SITE = HOST.includes('workbuddy') ? 'workbuddy' : (HOST.includes('trae') ? 'trae' : null);
 
-    // 若 trae 站点自动获取不到 JWT，可在此手动粘贴当前浏览器中的凭证（含 "Cloud-IDE-JWT " 前缀与 eyJ... 部分）
+    // 若 trae 站点自动获取不到 JWT，可在此手动粘贴当前浏览器中的裸 JWT（eyJ...，脚本会自动补上 "Cloud-IDE-JWT " 前缀）
     const MANUAL_TRAE_JWT = null;
 
     const MODAL_ID = 'wbp-usage-modal';
@@ -66,39 +66,50 @@
         }
     }
 
-    async function postJson(url, payload, extraHeaders) {
-        let resp;
-        try {
-            resp = await fetch(url, {
-                method: 'POST',
-                headers: Object.assign({
-                    'accept': 'application/json, text/plain, */*',
-                    'content-type': 'application/json',
-                    'cache-control': 'no-cache',
-                    'pragma': 'no-cache',
-                    'priority': 'u=1, i'
-                }, extraHeaders),
-                referrer: `${location.origin}/`,
-                body: JSON.stringify(payload),
-                mode: 'cors',
-                credentials: 'include'
-            });
-        } catch (e) {
-            throw new Error(`网络请求失败：${e && e.message ? e.message : e}`);
-        }
+    // XHR 请求（页面同源上下文，携带 Cookie 与自定义请求头）
+    function postJson(url, payload, extraHeaders) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.timeout = 30000;
+            xhr.withCredentials = true;
 
-        if (!resp.ok) {
-            throw new Error(`接口请求失败：HTTP ${resp.status} ${resp.statusText}`);
-        }
+            const headers = Object.assign({
+                'accept': 'application/json, text/plain, */*',
+                'content-type': 'application/json',
+                'cache-control': 'no-cache',
+                'pragma': 'no-cache',
+                'priority': 'u=1, i'
+            }, extraHeaders);
+            for (const k of Object.keys(headers)) {
+                xhr.setRequestHeader(k, headers[k]);
+            }
 
-        let json;
-        try {
-            json = await resp.json();
-        } catch (e) {
-            throw new Error('接口返回内容不是有效的 JSON');
-        }
-        checkBizCode(json);
-        return json;
+            xhr.onreadystatechange = () => {
+                if (xhr.readyState !== 4) return;
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    reject(new Error(`接口请求失败：HTTP ${xhr.status} ${xhr.statusText || ''}`));
+                    return;
+                }
+                let json;
+                try {
+                    json = JSON.parse(xhr.responseText);
+                } catch (e) {
+                    reject(new Error('接口返回内容不是有效的 JSON'));
+                    return;
+                }
+                checkBizCode(json);
+                resolve(json);
+            };
+            xhr.onerror = () => reject(new Error('网络请求失败'));
+            xhr.ontimeout = () => reject(new Error('接口请求超时（30s）'));
+
+            try {
+                xhr.send(JSON.stringify(payload));
+            } catch (e) {
+                reject(new Error(`网络请求失败：${e && e.message ? e.message : e}`));
+            }
+        });
     }
 
     // ========== workbuddy 适配 ==========
@@ -181,7 +192,7 @@
                 if (typeof val !== 'string' || !val) continue;
                 if (/cloud-ide-jwt/i.test(key) || val.indexOf('Cloud-IDE-JWT') >= 0) {
                     const m = val.match(/Cloud-IDE-JWT\s+(eyJ[\w-]+\.[\w-]+\.[\w-]+)/) || val.match(jwtRe);
-                    if (m) return (m[1] || m[0]);
+                    if (m) return 'Cloud-IDE-JWT ' + (m[1] || m[0]);
                 }
             }
         } catch (e) { /* 部分页面可能限制访问，忽略 */ }
@@ -193,7 +204,7 @@
                 const val = localStorage.getItem(key);
                 if (!val) continue;
                 const m = val.match(/Cloud-IDE-JWT\s+(eyJ[\w-]+\.[\w-]+\.[\w-]+)/) || val.match(jwtRe);
-                if (m) return (m[1] || m[0]);
+                if (m) return 'Cloud-IDE-JWT ' + (m[1] || m[0]);
             } catch (e) { /* 忽略 */ }
         }
 
@@ -202,10 +213,12 @@
 
     async function fetchTrae() {
         const { date, start, end } = traeRange();
-        const authorization = findTraeToken() || MANUAL_TRAE_JWT;
-        if (!authorization) {
+        let token = findTraeToken() || MANUAL_TRAE_JWT;
+        if (!token) {
             throw new Error('未能从页面获取 Cloud-IDE-JWT 登录凭证。请确认已登录 www.trae.cn，或将当前凭证填入脚本顶部 MANUAL_TRAE_JWT 常量。');
         }
+        // findTraeToken 返回裸 JWT，请求头需要 "Cloud-IDE-JWT " 前缀；若已带前缀则原样使用
+        const authorization = /^Cloud-IDE-JWT\s/i.test(token) ? token : 'Cloud-IDE-JWT ' + token;
 
         const PAGE_SIZE = 100;
         const MAX_PAGES = 30;
