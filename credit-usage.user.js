@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         workbuddy 查看今日积分使用量
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.3.1
 // @description  Tampermonkey 菜单新增【查看今日积分使用量】按钮，支持 workbuddy.cn（按 credit 求和）与 www.trae.cn/dashboard（按 credits_float 求和），分页拉全量后弹窗展示今日积分使用总量与明细
 // @author       You
 // @match        https://www.workbuddy.cn/profile/*
@@ -75,11 +75,8 @@
             xhr.withCredentials = true;
 
             const headers = Object.assign({
-                'accept': 'application/json, text/plain, */*',
-                'content-type': 'application/json',
-                'cache-control': 'no-cache',
-                'pragma': 'no-cache',
-                'priority': 'u=1, i'
+                'Accept': 'application/json, text/plain, */*',
+                'Content-Type': 'application/json',
             }, extraHeaders);
             for (const k of Object.keys(headers)) {
                 xhr.setRequestHeader(k, headers[k]);
@@ -220,7 +217,7 @@
         // findTraeToken 返回裸 JWT，请求头需要 "Cloud-IDE-JWT " 前缀；若已带前缀则原样使用
         const authorization = /^Cloud-IDE-JWT\s/i.test(token) ? token : 'Cloud-IDE-JWT ' + token;
 
-        const PAGE_SIZE = 100;
+        const PAGE_SIZE = 20; // TRAE 只能请求20个
         const MAX_PAGES = 30;
         const API = 'https://api.trae.cn/trae/api/v1/pay/query_user_usage_group_by_session';
 
@@ -232,7 +229,7 @@
         for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
             const json = await postJson(API,
                 { start_time: start, end_time: end, page_size: PAGE_SIZE, page_num: pageNum, usage_type: [7] },
-                { 'authorization': authorization });
+                { 'Authorization': authorization });
             if (!firstJson) firstJson = json;
 
             const current = Array.isArray(json.user_usage_group_by_sessions) ? json.user_usage_group_by_sessions : [];
