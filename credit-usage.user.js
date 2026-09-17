@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         workbuddy 查看今日积分使用量
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.5.1
 // @description  Tampermonkey 菜单新增【查看今日积分使用量】按钮，支持 workbuddy.cn（按 credit 求和）与 www.trae.cn/dashboard（按 credits_float 求和），弹窗展示今日积分使用总量、近24小时/近7天用量柱状图与明细（明细默认折叠）
 // @author       You
 // @match        https://www.workbuddy.cn/profile/*
@@ -270,9 +270,10 @@
         const buckets = Array.from({ length: 24 }, (_, i) => {
             const d = new Date(first + i * 3600000);
             return {
-                label: d.getHours() === 0 ? `${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : `${pad(d.getHours())}:00`,
+                // 横轴直接显示小时数字（0-23），不再标跨天日期
+                label: String(d.getHours()),
                 title: `${formatDate(d)} ${pad(d.getHours())}:00 ~ ${pad(d.getHours())}:59`,
-                isDayStart: d.getHours() === 0,
+                isDayStart: false,
                 value: 0
             };
         });
@@ -356,16 +357,15 @@
         });
         buckets.forEach((b, i) => {
             const x = padL + i * (barW + gap);
-            const barH = b.value > 0 ? Math.max((b.value / niceMax) * plotH, 1) : 0;
+            // 零值柱也保留一点高度（2px），并在顶部显示 0
+            const barH = b.value > 0 ? Math.max((b.value / niceMax) * plotH, 1) : 2;
             const y = padT + plotH - barH;
-            s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="${Math.min(2, barW / 3).toFixed(1)}" fill="${opts.color}"><title>${escapeHtml(b.title || b.label)}：${formatNum(b.value)} 积分</title></rect>`;
-            // 柱顶数值标签：与柱子中央对齐，零值柱不显示
-            if (b.value > 0) {
-                const fmt = opts.fmtValue || formatNum;
-                s += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle" font-size="${opts.valueFontSize || 9}" font-weight="600" fill="#374151">${escapeHtml(fmt(b.value))}</text>`;
-            }
+            s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="${Math.min(2, barW / 3).toFixed(1)}" fill="${opts.color}" opacity="${b.value > 0 ? 1 : 0.35}"><title>${escapeHtml(b.title || b.label)}：${formatNum(b.value)} 积分</title></rect>`;
+            // 柱顶数值标签：与柱子中央对齐，零值柱也显示 0
+            const fmt = opts.fmtValue || formatNum;
+            s += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle" font-size="${opts.valueFontSize || 9}" font-weight="600" fill="#374151">${escapeHtml(fmt(b.value))}</text>`;
             if (labelIdx.has(i)) {
-                s += `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="#6b7280">${escapeHtml(b.label)}</text>`;
+                s += `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="${opts.xLabelFontSize || 9}" fill="#6b7280">${escapeHtml(b.label)}</text>`;
             }
         });
         s += '</svg>';
@@ -558,7 +558,7 @@
         }
 
         html += `<div class="wbp-section-title">📊 最近 24 小时 · 每小时积分用量</div>`;
-        html += `<div class="wbp-chart">${buildBarChartSvg(hourly, { labelEvery: 4, color: '#3b82f6', valueFontSize: 8, fmtValue: fmtCompactValue })}</div>`;
+        html += `<div class="wbp-chart">${buildBarChartSvg(hourly, { labelEvery: 1, color: '#3b82f6', valueFontSize: 8, fmtValue: fmtCompactValue, xLabelFontSize: 8 })}</div>`;
         html += `<div class="wbp-section-title">📊 最近 7 天 · 每天积分用量</div>`;
         html += `<div class="wbp-chart">${buildBarChartSvg(daily, { labelEvery: 1, color: '#8b5cf6', fmtValue: v => String(parseFloat(Number(v).toFixed(1))) })}</div>`;
 
