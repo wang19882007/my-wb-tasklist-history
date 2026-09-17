@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         workbuddy 查看今日积分使用量
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Tampermonkey 菜单新增【查看今日积分使用量】按钮，支持 workbuddy.cn（按 credit 求和）与 www.trae.cn/dashboard（按 credits_float 求和），弹窗展示今日积分使用总量、近24小时/近7天用量柱状图与明细（明细默认折叠）
 // @author       You
 // @match        https://www.workbuddy.cn/profile/*
@@ -321,10 +321,15 @@
         return String(parseFloat(v.toFixed(1)));
     }
 
-    // 纯 SVG 柱状图：一个柱子 = 一个时间段的积分使用总和，悬停柱子可查看精确值
+    // 24小时图柱顶数值用紧凑格式（≥10 取整、<10 保留 1 位小数），避免相邻标签重叠；精确值可悬停柱子查看
+    function fmtCompactValue(v) {
+        return v >= 10 ? String(Math.round(v)) : String(parseFloat(v.toFixed(1)));
+    }
+
+    // 纯 SVG 柱状图：一个柱子 = 一个时间段的积分使用总和，柱顶显示用量值（与柱子中央对齐），悬停柱子可查看精确值
     function buildBarChartSvg(buckets, opts) {
         const W = 480, H = 160;
-        const padL = 40, padR = 6, padT = 12, padB = 20;
+        const padL = 40, padR = 6, padT = 14, padB = 20;
         const plotW = W - padL - padR;
         const plotH = H - padT - padB;
         const n = buckets.length;
@@ -354,6 +359,11 @@
             const barH = b.value > 0 ? Math.max((b.value / niceMax) * plotH, 1) : 0;
             const y = padT + plotH - barH;
             s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="${Math.min(2, barW / 3).toFixed(1)}" fill="${opts.color}"><title>${escapeHtml(b.title || b.label)}：${formatNum(b.value)} 积分</title></rect>`;
+            // 柱顶数值标签：与柱子中央对齐，零值柱不显示
+            if (b.value > 0) {
+                const fmt = opts.fmtValue || formatNum;
+                s += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle" font-size="${opts.valueFontSize || 9}" font-weight="600" fill="#374151">${escapeHtml(fmt(b.value))}</text>`;
+            }
             if (labelIdx.has(i)) {
                 s += `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="#6b7280">${escapeHtml(b.label)}</text>`;
             }
@@ -380,7 +390,7 @@
         #${MODAL_ID} .wbp-box {
             background: #fff;
             border-radius: 14px;
-            width: 520px;
+            width: 720px;
             max-width: 92vw;
             max-height: 82vh;
             box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
@@ -548,9 +558,9 @@
         }
 
         html += `<div class="wbp-section-title">📊 最近 24 小时 · 每小时积分用量</div>`;
-        html += `<div class="wbp-chart">${buildBarChartSvg(hourly, { labelEvery: 4, color: '#3b82f6' })}</div>`;
+        html += `<div class="wbp-chart">${buildBarChartSvg(hourly, { labelEvery: 4, color: '#3b82f6', valueFontSize: 8, fmtValue: fmtCompactValue })}</div>`;
         html += `<div class="wbp-section-title">📊 最近 7 天 · 每天积分用量</div>`;
-        html += `<div class="wbp-chart">${buildBarChartSvg(daily, { labelEvery: 1, color: '#8b5cf6' })}</div>`;
+        html += `<div class="wbp-chart">${buildBarChartSvg(daily, { labelEvery: 1, color: '#8b5cf6', fmtValue: v => String(parseFloat(Number(v).toFixed(1))) })}</div>`;
 
         // 明细表（默认折叠）
         const CAP = 300;
