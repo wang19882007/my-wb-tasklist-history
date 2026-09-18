@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         workbuddy 查看今日积分使用量
 // @namespace    http://tampermonkey.net/
-// @version      1.5.1
+// @version      1.5.2
 // @description  Tampermonkey 菜单新增【查看今日积分使用量】按钮，支持 workbuddy.cn（按 credit 求和）与 www.trae.cn/dashboard（按 credits_float 求和），弹窗展示今日积分使用总量、近24小时/近7天用量柱状图与明细（明细默认折叠）
 // @author       You
 // @match        https://www.workbuddy.cn/profile/*
-// @match        https://www.trae.cn/dashboard
+// @match        https://www.trae.cn/dashboard*
 // @grant        GM_registerMenuCommand
 // @grant        GM_addStyle
 // @run-at       document-idle
@@ -527,19 +527,19 @@
         #${MODAL_ID} pre.open { display: block; }
     `);
 
-    function buildHtml({ json, date, rows, allRows, recordTotal, pages, site, hourly, daily }) {
+    function buildHtml({ json, rows, allRows, recordTotal, pages, site, hourly, daily }) {
         const isTrae = site === 'trae';
         const itemName = isTrae ? '会话' : '请求记录';
         const fieldName = isTrae ? 'credits_float' : 'credit';
 
-        // rows = 今日记录，总量按今日求和
+        // rows = 最近24小时内记录，总量按该口径求和（从当前时刻往前推24h，而非今日0点）
         const totalValue = sumField(rows, 'credit');
-        let totalSource = `今日 ${rows.length} 条${itemName}的 ${fieldName} 字段求和`;
+        let totalSource = `最近24小时 ${rows.length} 条${itemName}的 ${fieldName} 字段求和`;
         if (pages > 1) totalSource += `（近7天数据分 ${pages} 页拉取）`;
 
         let html = `
             <div class="wbp-total">
-                <div class="wbp-total-label">今日（${date}）积分使用总量（${isTrae ? 'Trae' : 'workbuddy'}）</div>
+                <div class="wbp-total-label">最近 24 小时积分使用总量（${isTrae ? 'Trae' : 'workbuddy'}）</div>
                 <div class="wbp-total-value">${formatNum(totalValue)}</div>
                 <div class="wbp-total-source">${totalSource}</div>`;
 
@@ -553,7 +553,7 @@
             if (allRows.length < recordTotal) {
                 html += `<div class="wbp-error">⚠️ 分页未取满：接口返回近7天共 ${recordTotal} 条${itemName}，实际只拉到 ${allRows.length} 条，图表与总量可能不完整。</div>`;
             } else {
-                html += `<div class="wbp-stats">📌 近7天窗口共 ${recordTotal} 条${itemName}（今日 ${rows.length} 条），已全量拉取。</div>`;
+                html += `<div class="wbp-stats">📌 近7天窗口共 ${recordTotal} 条${itemName}（最近24小时 ${rows.length} 条），已全量拉取。</div>`;
             }
         }
 
@@ -565,7 +565,7 @@
         // 明细表（默认折叠）
         const CAP = 300;
         const shown = rows.slice(0, CAP);
-        html += `<div class="wbp-section-title">📋 ${itemName}明细（今日共 ${rows.length} 条${rows.length > CAP ? `，仅显示前 ${CAP} 条` : ''}）</div>`;
+        html += `<div class="wbp-section-title">📋 ${itemName}明细（最近24小时共 ${rows.length} 条${rows.length > CAP ? `，仅显示前 ${CAP} 条` : ''}）</div>`;
         html += `<button class="wbp-collapse-toggle">⬇ 展开明细表格</button><div style="display:none">`;
         html += '<table><thead><tr><th>时间</th><th>模型</th><th>积分</th>' + (isTrae ? '<th>金额</th>' : '') + '</tr></thead><tbody>' +
             shown.map(r => {
@@ -629,14 +629,14 @@
                 data = await fetchWorkbuddy(fmtDateTime(weekStart), `${date} 23:59:59`);
             }
 
-            const todayRows = data.rows.filter(r => r.ts >= todayStart);
+            // 总量/明细口径：最近 24 小时（从当前时刻往前推 24h，而不是今日 0 点）
+            const recentRows = data.rows.filter(r => r.ts >= nowMs - 24 * 3600000 && r.ts <= nowMs);
             const hourly = buildHourlyBuckets(data.rows, nowMs);
             const daily = buildDailyBuckets(data.rows, todayStart);
 
             bodyEl.innerHTML = buildHtml({
                 json: data.json,
-                date,
-                rows: todayRows,
+                rows: recentRows,
                 allRows: data.rows,
                 recordTotal: data.recordTotal,
                 pages: data.pages,
@@ -661,7 +661,7 @@
         modal.innerHTML = `
             <div class="wbp-box">
                 <div class="wbp-header">
-                    <h2>📅 今日积分使用量</h2>
+                    <h2>📅 最近 24 小时积分使用量</h2>
                     <button class="wbp-close" title="关闭">✕</button>
                 </div>
                 <div class="wbp-body" id="${BODY_ID}">
